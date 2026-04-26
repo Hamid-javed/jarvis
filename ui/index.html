@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="en" data-state="INITIALISING">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>J · A · R · V · I · S</title>
+  <style>
+    /* ── Reset & base ───────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #05050a;
+      --accent1:   #6366f1;
+      --accent2:   #8b5cf6;
+      --accent3:   #a78bfa;
+      --surface:   rgba(255,255,255,0.04);
+      --border:    rgba(99,102,241,0.18);
+      --text:      #e2e8f0;
+      --muted:     rgba(226,232,240,0.38);
+      --red:       #ef4444;
+      --bar-h:     28px;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "SF Pro Display", "Segoe UI", system-ui, sans-serif;
+      overflow: hidden;
+      user-select: none;
+      -webkit-app-region: no-drag;
+    }
+
+    /* ── Title bar ──────────────────────────────────────────────────────────── */
+    #titlebar {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: var(--bar-h);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+      z-index: 100;
+      background: rgba(5,5,10,0.82);
+      backdrop-filter: blur(6px);
+      border-bottom: 1px solid var(--border);
+      -webkit-app-region: drag;
+    }
+
+    /* traffic lights */
+    #traffic {
+      display: flex;
+      gap: 7px;
+      -webkit-app-region: no-drag;
+    }
+    .dot {
+      width: 12px; height: 12px;
+      border-radius: 50%;
+      cursor: pointer;
+      transition: filter 0.15s;
+    }
+    .dot:hover { filter: brightness(1.35); }
+    #dot-close  { background: #ff5f57; }
+    #dot-min    { background: #febc2e; }
+    #dot-max    { background: #28c840; }
+
+    #title-text {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.35em;
+      color: var(--accent3);
+      text-transform: uppercase;
+      pointer-events: none;
+    }
+
+    #clock {
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+    }
+
+    /* ── Main layout ────────────────────────────────────────────────────────── */
+    #app {
+      display: flex;
+      height: 100%;
+      padding-top: var(--bar-h);
+    }
+
+    /* ── LEFT panel ─────────────────────────────────────────────────────────── */
+    #left {
+      flex: 0 0 50%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 22px;
+      position: relative;
+      overflow: hidden;
+      border-right: 1px solid var(--border);
+    }
+
+    /* Ambient radial glow */
+    #left::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse 55% 55% at 50% 48%,
+        rgba(99,102,241,0.13) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    /* ── Orbit rings ────────────────────────────────────────────────────────── */
+    .rings {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+
+    .ring {
+      position: absolute;
+      border-radius: 50%;
+      border: 1px solid rgba(99,102,241,0.22);
+      opacity: 0;
+      transition: opacity 0.6s;
+    }
+    .ring-1 { width: 220px; height: 220px; }
+    .ring-2 { width: 290px; height: 290px; }
+    .ring-3 { width: 360px; height: 360px; }
+
+    /* LISTENING — rings visible, slow spin */
+    html[data-state="LISTENING"] .ring { opacity: 1; }
+    html[data-state="LISTENING"] .ring-1 { animation: spin-cw  4s linear infinite; }
+    html[data-state="LISTENING"] .ring-2 { animation: spin-ccw 7s linear infinite; }
+    html[data-state="LISTENING"] .ring-3 { animation: spin-cw 10s linear infinite; }
+
+    /* SPEAKING — rings visible, fast spin */
+    html[data-state="SPEAKING"] .ring { opacity: 1; }
+    html[data-state="SPEAKING"] .ring-1 { animation: spin-cw  1.2s linear infinite; }
+    html[data-state="SPEAKING"] .ring-2 { animation: spin-ccw 2.2s linear infinite; }
+    html[data-state="SPEAKING"] .ring-3 { animation: spin-cw  3.4s linear infinite; }
+
+    /* THINKING / PROCESSING — rings visible, medium spin */
+    html[data-state="THINKING"] .ring,
+    html[data-state="PROCESSING"] .ring { opacity: 0.65; }
+    html[data-state="THINKING"] .ring-1,
+    html[data-state="PROCESSING"] .ring-1 { animation: spin-cw  2.5s linear infinite; }
+    html[data-state="THINKING"] .ring-2,
+    html[data-state="PROCESSING"] .ring-2 { animation: spin-ccw 4.5s linear infinite; }
+    html[data-state="THINKING"] .ring-3,
+    html[data-state="PROCESSING"] .ring-3 { animation: spin-cw  6.5s linear infinite; }
+
+    /* MUTED — very faint */
+    html[data-state="MUTED"] .ring { opacity: 0.08; animation: none !important; }
+
+    /* INITIALISING — hidden */
+    html[data-state="INITIALISING"] .ring { opacity: 0; animation: none !important; }
+
+    @keyframes spin-cw  { from { transform: rotate(0deg);   } to { transform: rotate(360deg);  } }
+    @keyframes spin-ccw { from { transform: rotate(0deg);   } to { transform: rotate(-360deg); } }
+
+    /* ── Avatar ─────────────────────────────────────────────────────────────── */
+    #avatar-wrap {
+      position: relative;
+      z-index: 1;
+      width: 130px; height: 130px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #avatar {
+      width: 120px; height: 120px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent1), var(--accent2), var(--accent3));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 42px;
+      overflow: hidden;
+      box-shadow: 0 0 0 3px rgba(99,102,241,0.3), 0 0 28px rgba(99,102,241,0.25);
+      animation: breathe 3.8s ease-in-out infinite;
+      transition: background 0.5s, box-shadow 0.5s;
+    }
+
+    #avatar img {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      border-radius: 50%;
+    }
+
+    /* MUTED — avatar turns red */
+    html[data-state="MUTED"] #avatar {
+      background: linear-gradient(135deg, #7f1d1d, #ef4444, #f87171);
+      box-shadow: 0 0 0 3px rgba(239,68,68,0.35), 0 0 28px rgba(239,68,68,0.3);
+      animation: none;
+    }
+
+    @keyframes breathe {
+      0%,100% { transform: scale(1);    box-shadow: 0 0 0 3px rgba(99,102,241,0.3), 0 0 28px rgba(99,102,241,0.25); }
+      50%      { transform: scale(1.04); box-shadow: 0 0 0 4px rgba(99,102,241,0.45), 0 0 44px rgba(99,102,241,0.38); }
+    }
+
+    /* ── Status badge ───────────────────────────────────────────────────────── */
+    #status-badge {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent3);
+    }
+
+    #status-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--accent2);
+      animation: blink 1.4s ease-in-out infinite;
+    }
+
+    html[data-state="MUTED"] #status-dot   { background: var(--red); animation: none; opacity: 0.55; }
+    html[data-state="THINKING"] #status-dot,
+    html[data-state="PROCESSING"] #status-dot { animation: blink-fast 0.6s ease-in-out infinite; }
+    html[data-state="INITIALISING"] #status-dot { animation: none; opacity: 0.3; }
+
+    @keyframes blink      { 0%,100%{opacity:1} 50%{opacity:0.25} }
+    @keyframes blink-fast { 0%,100%{opacity:1} 50%{opacity:0.18} }
+
+    /* ── Waveform ───────────────────────────────────────────────────────────── */
+    #waveform {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      height: 32px;
+    }
+
+    .bar {
+      width: 3px;
+      border-radius: 2px;
+      background: linear-gradient(to top, var(--accent1), var(--accent3));
+      opacity: 0.55;
+      transition: opacity 0.4s;
+    }
+
+    html[data-state="LISTENING"] .bar  { animation: wave var(--d, 1s) ease-in-out infinite; opacity: 0.7; }
+    html[data-state="SPEAKING"]  .bar  { animation: wave var(--d, 0.5s) ease-in-out infinite; opacity: 1; }
+    html[data-state="THINKING"] .bar,
+    html[data-state="PROCESSING"] .bar { animation: wave var(--d, 1.8s) ease-in-out infinite; opacity: 0.4; }
+    html[data-state="MUTED"] .bar      { animation: none !important; height: 3px !important; opacity: 0.2; }
+    html[data-state="INITIALISING"] .bar { animation: none !important; opacity: 0.2; }
+
+    @keyframes wave {
+      0%,100% { transform: scaleY(0.3); }
+      50%      { transform: scaleY(1);   }
+    }
+
+    /* ── Mute button ────────────────────────────────────────────────────────── */
+    #mute-btn {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 18px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s, color 0.2s;
+    }
+    #mute-btn:hover { background: rgba(99,102,241,0.14); border-color: var(--accent2); }
+    html[data-state="MUTED"] #mute-btn {
+      background: rgba(239,68,68,0.14);
+      border-color: rgba(239,68,68,0.4);
+      color: #fca5a5;
+    }
+    #mute-icon { font-size: 14px; }
+
+    /* ── Model badge ────────────────────────────────────────────────────────── */
+    #model-badge {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      color: rgba(167,139,250,0.5);
+      text-transform: uppercase;
+    }
+
+    /* ── RIGHT panel ────────────────────────────────────────────────────────── */
+    #right {
+      flex: 0 0 50%;
+      display: flex;
+      flex-direction: column;
+      padding: 14px 0 0;
+    }
+
+    /* Chat log */
+    #chat-log {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 10px 18px 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      scroll-behavior: smooth;
+    }
+
+    #chat-log::-webkit-scrollbar { width: 4px; }
+    #chat-log::-webkit-scrollbar-track { background: transparent; }
+    #chat-log::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.25); border-radius: 2px; }
+
+    /* Message bubbles */
+    .msg {
+      max-width: 86%;
+      padding: 9px 13px;
+      border-radius: 14px;
+      font-size: 13.5px;
+      line-height: 1.55;
+      word-break: break-word;
+      white-space: pre-wrap;
+    }
+
+    .msg-you {
+      align-self: flex-end;
+      background: rgba(99,102,241,0.18);
+      border: 1px solid rgba(99,102,241,0.25);
+      color: #c7d2fe;
+      border-bottom-right-radius: 4px;
+    }
+
+    .msg-ai {
+      align-self: flex-start;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+      color: var(--text);
+      border-bottom-left-radius: 4px;
+    }
+
+    .msg-sys {
+      align-self: center;
+      font-size: 11.5px;
+      color: var(--muted);
+      font-style: italic;
+      background: none;
+      border: none;
+      padding: 2px 0;
+    }
+
+    .msg-err {
+      align-self: flex-start;
+      background: rgba(239,68,68,0.1);
+      border: 1px solid rgba(239,68,68,0.22);
+      color: #fca5a5;
+      border-bottom-left-radius: 4px;
+    }
+
+    /* Typing indicator */
+    #typing-indicator {
+      display: none;
+      align-self: flex-start;
+      padding: 10px 14px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 14px;
+      border-bottom-left-radius: 4px;
+      gap: 5px;
+    }
+    #typing-indicator.visible { display: flex; }
+
+    .typing-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--accent2);
+      animation: typing-bounce 1.1s ease-in-out infinite;
+    }
+    .typing-dot:nth-child(2) { animation-delay: 0.18s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.36s; }
+
+    @keyframes typing-bounce {
+      0%,80%,100% { transform: translateY(0); opacity: 0.55; }
+      40%          { transform: translateY(-6px); opacity: 1;    }
+    }
+
+    /* ── Input area ─────────────────────────────────────────────────────────── */
+    #input-area {
+      padding: 10px 14px 12px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+
+    #input-row {
+      display: flex;
+      gap: 8px;
+      align-items: flex-end;
+    }
+
+    #text-input {
+      flex: 1;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 8px 16px;
+      color: var(--text);
+      font-size: 13.5px;
+      outline: none;
+      resize: none;
+      min-height: 36px;
+      max-height: 110px;
+      line-height: 1.5;
+      font-family: inherit;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    #text-input::placeholder { color: var(--muted); }
+    #text-input:focus {
+      border-color: var(--accent2);
+      background: rgba(99,102,241,0.07);
+    }
+
+    #send-btn {
+      width: 36px; height: 36px;
+      flex-shrink: 0;
+      border-radius: 50%;
+      border: none;
+      background: linear-gradient(135deg, var(--accent1), var(--accent2));
+      color: #fff;
+      font-size: 16px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: filter 0.2s, transform 0.12s;
+      box-shadow: 0 2px 12px rgba(99,102,241,0.35);
+    }
+    #send-btn:hover  { filter: brightness(1.2); transform: scale(1.06); }
+    #send-btn:active { transform: scale(0.94); }
+
+    #input-hint {
+      font-size: 10.5px;
+      color: rgba(226,232,240,0.25);
+      letter-spacing: 0.05em;
+      text-align: center;
+    }
+
+    /* ── Setup overlay ──────────────────────────────────────────────────────── */
+    #setup-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      background: rgba(5,5,10,0.88);
+      backdrop-filter: blur(8px);
+      align-items: center;
+      justify-content: center;
+    }
+    #setup-overlay.visible { display: flex; }
+
+    #setup-card {
+      background: #0d0d18;
+      border: 1px solid rgba(99,102,241,0.3);
+      border-radius: 18px;
+      padding: 36px 40px;
+      width: 420px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      box-shadow: 0 24px 60px rgba(0,0,0,0.6), 0 0 40px rgba(99,102,241,0.08);
+    }
+
+    #setup-title {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: var(--accent3);
+      text-align: center;
+    }
+
+    #setup-sub {
+      font-size: 12.5px;
+      color: var(--muted);
+      text-align: center;
+      margin-top: -12px;
+    }
+
+    .setup-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .setup-field {
+      display: flex;
+      flex-direction: column;
+    }
+
+    #api-key-input {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 14px;
+      color: var(--text);
+      font-size: 13px;
+      outline: none;
+      font-family: "SF Mono", "Cascadia Code", monospace;
+      letter-spacing: 0.04em;
+      transition: border-color 0.2s;
+    }
+    #api-key-input:focus { border-color: var(--accent2); }
+    #api-key-input::placeholder { color: rgba(226,232,240,0.22); font-family: inherit; letter-spacing: 0; }
+
+    #os-selector {
+      display: flex;
+      gap: 10px;
+    }
+
+    .os-opt {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      padding: 12px 8px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      cursor: pointer;
+      font-size: 12px;
+      color: var(--muted);
+      transition: background 0.2s, border-color 0.2s, color 0.2s;
+    }
+    .os-opt:hover { background: rgba(99,102,241,0.1); border-color: var(--accent2); color: var(--text); }
+    .os-opt.selected {
+      background: rgba(99,102,241,0.18);
+      border-color: var(--accent1);
+      color: var(--accent3);
+    }
+    .os-icon { font-size: 22px; }
+
+    #setup-submit {
+      padding: 12px;
+      border-radius: 10px;
+      border: none;
+      background: linear-gradient(135deg, var(--accent1), var(--accent2));
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      cursor: pointer;
+      transition: filter 0.2s, transform 0.12s;
+      box-shadow: 0 4px 16px rgba(99,102,241,0.35);
+    }
+    #setup-submit:hover  { filter: brightness(1.15); }
+    #setup-submit:active { transform: scale(0.97); }
+
+    #setup-error {
+      font-size: 12px;
+      color: #fca5a5;
+      text-align: center;
+      min-height: 16px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Title bar ──────────────────────────────────────────────────────────── -->
+  <div id="titlebar">
+    <div id="traffic">
+      <div class="dot" id="dot-close" title="Close"  onclick="window.pywebview.api.close()"></div>
+      <div class="dot" id="dot-min"   title="Minimize"></div>
+      <div class="dot" id="dot-max"   title="Maximize"></div>
+    </div>
+    <span id="title-text">J · A · R · V · I · S</span>
+    <span id="clock"></span>
+  </div>
+
+  <!-- ── App shell ──────────────────────────────────────────────────────────── -->
+  <div id="app">
+
+    <!-- ── LEFT panel ─────────────────────────────────────────────────────── -->
+    <div id="left">
+
+      <!-- Orbit rings -->
+      <div class="rings">
+        <div class="ring ring-1"></div>
+        <div class="ring ring-2"></div>
+        <div class="ring ring-3"></div>
+      </div>
+
+      <!-- Avatar -->
+      <div id="avatar-wrap">
+        <div id="avatar">🤖</div>
+      </div>
+
+      <!-- Status badge -->
+      <div id="status-badge">
+        <div id="status-dot"></div>
+        <span id="status-text">INITIALISING</span>
+      </div>
+
+      <!-- Waveform — 16 bars -->
+      <div id="waveform"></div>
+
+      <!-- Mute button -->
+      <button id="mute-btn" onclick="window.pywebview.api.toggle_mute()">
+        <span id="mute-icon">🎙</span>
+        <span id="mute-label">MUTE</span>
+      </button>
+
+      <!-- Model badge -->
+      <div id="model-badge">MARK XXXVII</div>
+
+    </div><!-- /left -->
+
+    <!-- ── RIGHT panel ─────────────────────────────────────────────────────── -->
+    <div id="right">
+
+      <!-- Chat log -->
+      <div id="chat-log">
+        <div id="typing-indicator">
+          <div class="typing-dot"></div>
+          <div class="typing-dot"></div>
+          <div class="typing-dot"></div>
+        </div>
+      </div>
+
+      <!-- Input area -->
+      <div id="input-area">
+        <div id="input-row">
+          <textarea
+            id="text-input"
+            rows="1"
+            placeholder="Speak or type a command…"
+            autocomplete="off"
+            spellcheck="false"
+          ></textarea>
+          <button id="send-btn" title="Send" onclick="sendText()">&#9658;</button>
+        </div>
+        <div id="input-hint">ENTER to send &nbsp;·&nbsp; F4 to mute</div>
+      </div>
+
+    </div><!-- /right -->
+
+  </div><!-- /app -->
+
+  <!-- ── Setup overlay ──────────────────────────────────────────────────────── -->
+  <div id="setup-overlay">
+    <div id="setup-card">
+      <div id="setup-title">J · A · R · V · I · S</div>
+      <div id="setup-sub">First-run configuration</div>
+
+      <div class="setup-field">
+        <div class="setup-label">Gemini API Key</div>
+        <input
+          type="password"
+          id="api-key-input"
+          placeholder="AIza…"
+          autocomplete="off"
+          spellcheck="false"
+        />
+      </div>
+
+      <div class="setup-field">
+        <div class="setup-label">Operating System</div>
+        <div id="os-selector">
+          <div class="os-opt" data-os="Windows" onclick="selectOs(this)">
+            <span class="os-icon">🪟</span>Windows
+          </div>
+          <div class="os-opt" data-os="macOS" onclick="selectOs(this)">
+            <span class="os-icon">🍎</span>macOS
+          </div>
+          <div class="os-opt" data-os="Linux" onclick="selectOs(this)">
+            <span class="os-icon">🐧</span>Linux
+          </div>
+        </div>
+      </div>
+
+      <button id="setup-submit" onclick="submitSetup()">INITIALISE SYSTEMS</button>
+      <div id="setup-error"></div>
+    </div>
+  </div>
+
+  <script>
+    /* ── State labels ──────────────────────────────────────────────────────── */
+    const STATE_LABELS = {
+      LISTENING:    "LISTENING",
+      SPEAKING:     "SPEAKING",
+      THINKING:     "THINKING",
+      PROCESSING:   "PROCESSING",
+      MUTED:        "MUTED",
+      INITIALISING: "INITIALISING",
+    };
+
+    const MUTE_LABELS = {
+      MUTED: { icon: "🔇", label: "UNMUTE" },
+      _default: { icon: "🎙", label: "MUTE"   },
+    };
+
+    /* ── Clock ─────────────────────────────────────────────────────────────── */
+    (function tickClock() {
+      const el = document.getElementById("clock");
+      function update() {
+        const now = new Date();
+        const h = now.getHours().toString().padStart(2, "0");
+        const m = now.getMinutes().toString().padStart(2, "0");
+        const s = now.getSeconds().toString().padStart(2, "0");
+        el.textContent = `${h}:${m}:${s}`;
+      }
+      update();
+      setInterval(update, 1000);
+    })();
+
+    /* ── Waveform bars ─────────────────────────────────────────────────────── */
+    (function buildWaveform() {
+      const wf = document.getElementById("waveform");
+      const BAR_HEIGHTS = [8,14,20,26,30,26,20,14,18,24,28,22,16,12,18,10];
+      BAR_HEIGHTS.forEach((h, i) => {
+        const bar = document.createElement("div");
+        bar.className = "bar";
+        bar.style.height = h + "px";
+        // stagger animation delays for organic feel
+        const delay = (i * 0.09).toFixed(2) + "s";
+        const dur   = (0.7 + Math.random() * 0.8).toFixed(2) + "s";
+        bar.style.setProperty("--d", dur);
+        bar.style.animationDelay = delay;
+        wf.appendChild(bar);
+      });
+    })();
+
+    /* ── setState (called from Python) ────────────────────────────────────── */
+    function setState(state) {
+      document.documentElement.dataset.state = state;
+
+      const statusText = document.getElementById("status-text");
+      statusText.textContent = STATE_LABELS[state] || state;
+
+      const isMuted = (state === "MUTED");
+      document.getElementById("mute-icon").textContent  = isMuted ? MUTE_LABELS.MUTED.icon  : MUTE_LABELS._default.icon;
+      document.getElementById("mute-label").textContent = isMuted ? MUTE_LABELS.MUTED.label : MUTE_LABELS._default.label;
+    }
+
+    /* ── appendMessage (called from Python) ───────────────────────────────── */
+    function appendMessage(tag, text) {
+      const log = document.getElementById("chat-log");
+      const el  = document.createElement("div");
+      el.className = "msg msg-" + tag;
+      el.textContent = text;
+      // insert before typing indicator (always last)
+      const indicator = document.getElementById("typing-indicator");
+      log.insertBefore(el, indicator);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    /* ── startTypewriter (called from Python) ─────────────────────────────── */
+    function startTypewriter(text) {
+      const indicator = document.getElementById("typing-indicator");
+
+      // show typing dots for 420ms
+      indicator.classList.add("visible");
+      const log = document.getElementById("chat-log");
+      log.scrollTop = log.scrollHeight;
+
+      setTimeout(() => {
+        indicator.classList.remove("visible");
+
+        // create AI bubble
+        const el = document.createElement("div");
+        el.className = "msg msg-ai";
+        el.textContent = "";
+        log.insertBefore(el, indicator);
+        log.scrollTop = log.scrollHeight;
+
+        // typewriter: 18ms per char
+        let i = 0;
+        function tick() {
+          if (i < text.length) {
+            el.textContent += text[i++];
+            log.scrollTop = log.scrollHeight;
+            setTimeout(tick, 18);
+          }
+        }
+        tick();
+      }, 420);
+    }
+
+    /* ── setFaceImage (called from Python) ────────────────────────────────── */
+    function setFaceImage(dataUrl) {
+      const avatar = document.getElementById("avatar");
+      avatar.innerHTML = "";
+      const img = document.createElement("img");
+      img.src = dataUrl;
+      img.alt = "JARVIS";
+      avatar.appendChild(img);
+    }
+
+    /* ── Setup overlay ─────────────────────────────────────────────────────── */
+    function showSetup() {
+      document.getElementById("setup-overlay").classList.add("visible");
+    }
+
+    function hideSetup() {
+      document.getElementById("setup-overlay").classList.remove("visible");
+    }
+
+    let _selectedOs = "";
+
+    function selectOs(el) {
+      document.querySelectorAll(".os-opt").forEach(o => o.classList.remove("selected"));
+      el.classList.add("selected");
+      _selectedOs = el.dataset.os;
+    }
+
+    function submitSetup() {
+      const key = document.getElementById("api-key-input").value.trim();
+      const errEl = document.getElementById("setup-error");
+      if (!key) { errEl.textContent = "API key is required."; return; }
+      if (!_selectedOs) { errEl.textContent = "Please select an operating system."; return; }
+      errEl.textContent = "";
+      window.pywebview.api.save_setup(key, _selectedOs);
+    }
+
+    /* ── Text input helpers ────────────────────────────────────────────────── */
+    function sendText() {
+      const input = document.getElementById("text-input");
+      const text  = input.value.trim();
+      if (!text) return;
+      input.value = "";
+      input.style.height = "";
+      window.pywebview.api.submit_text(text);
+    }
+
+    // Auto-grow textarea
+    const textInput = document.getElementById("text-input");
+    textInput.addEventListener("input", function () {
+      this.style.height = "";
+      this.style.height = Math.min(this.scrollHeight, 110) + "px";
+    });
+
+    /* ── Keyboard shortcuts ────────────────────────────────────────────────── */
+    document.addEventListener("keydown", function (e) {
+      // F4 → toggle mute
+      if (e.key === "F4") {
+        e.preventDefault();
+        window.pywebview.api.toggle_mute();
+        return;
+      }
+
+      // Enter (without Shift) in text input → send
+      if (e.key === "Enter" && !e.shiftKey) {
+        const active = document.activeElement;
+        if (active && active.id === "text-input") {
+          e.preventDefault();
+          sendText();
+        }
+      }
+    });
+  </script>
+</body>
+</html>
