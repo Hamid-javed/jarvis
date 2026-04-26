@@ -9,7 +9,7 @@ from pathlib import Path
 import sounddevice as sd
 from google import genai
 from google.genai import types
-from ui import JarvisUI
+from ui_web import JarvisWebUI
 from memory.memory_manager import (
     load_memory, update_memory, format_memory_for_prompt,
 )
@@ -422,7 +422,7 @@ TOOL_DECLARATIONS = [
 
 class JarvisLive:
 
-    def __init__(self, ui: JarvisUI):
+    def __init__(self, ui: JarvisWebUI):
         self.ui             = ui
         self.session        = None
         self.audio_in_queue = None
@@ -802,7 +802,7 @@ class JarvisLive:
 
 
 def main():
-    ui = JarvisUI("face.png")
+    ui = JarvisWebUI("face.png")
 
     def runner():
         ui.wait_for_api_key()
@@ -813,7 +813,7 @@ def main():
             print("\n🔴 Shutting down...")
 
     threading.Thread(target=runner, daemon=True).start()
-    ui.root.mainloop()
+    ui.start()
 
 
 if __name__ == "__main__":
