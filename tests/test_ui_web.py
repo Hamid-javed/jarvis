@@ -1,7 +1,7 @@
 import json
 import threading
 import pytest
-from unittest.mock import MagicMock, patch, mock_open
+from unittest.mock import MagicMock
 from pathlib import Path
 
 
@@ -28,6 +28,7 @@ def make_ui_with_window():
     ui._window = FakeWindow()
     ui._js_lock = threading.Lock()
     ui._js_queue = []
+    ui._mute_lock = threading.Lock()
     ui._face_path = None
     from ui_web import JsApi
     ui._js_api = JsApi(ui)
@@ -65,27 +66,21 @@ def test_jsapi_toggle_mute_calls_set_state():
     ui = make_ui_with_window()
     ui._js_api.toggle_mute()
     js_calls = ui._window.js_calls
-    assert any('MUTED' in c for c in js_calls)
+    assert any('setState("MUTED")' in c for c in js_calls)
 
 
-def test_jsapi_save_setup_writes_config(tmp_path):
-    from ui_web import JarvisWebUI, JsApi
+def test_jsapi_save_setup_writes_config(tmp_path, monkeypatch):
     import ui_web
-    ui = make_ui_with_window()
-    orig_api_file = ui_web.API_FILE
-    orig_config_dir = ui_web.CONFIG_DIR
-    ui_web.API_FILE = tmp_path / "api_keys.json"
-    ui_web.CONFIG_DIR = tmp_path
+    monkeypatch.setattr(ui_web, "API_FILE", tmp_path / "api_keys.json")
+    monkeypatch.setattr(ui_web, "CONFIG_DIR", tmp_path)
 
+    ui = make_ui_with_window()
     result = ui._js_api.save_setup("test-key-123", "windows")
     assert result["ok"] is True
     data = json.loads((tmp_path / "api_keys.json").read_text())
     assert data["gemini_api_key"] == "test-key-123"
     assert data["os_system"] == "windows"
     assert ui._api_ready.is_set()
-
-    ui_web.API_FILE = orig_api_file
-    ui_web.CONFIG_DIR = orig_config_dir
 
 
 def test_jsapi_save_setup_rejects_empty_key():

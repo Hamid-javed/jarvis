@@ -39,8 +39,10 @@ class JsApi:
             ).start()
 
     def toggle_mute(self):
-        self._ui.muted = not self._ui.muted
-        if self._ui.muted:
+        with self._ui._mute_lock:
+            self._ui.muted = not self._ui.muted
+            muted = self._ui.muted
+        if muted:
             self._ui.set_state("MUTED")
             self._ui.write_log("SYS: Microphone muted.")
         else:
@@ -48,6 +50,7 @@ class JsApi:
             self._ui.write_log("SYS: Microphone active.")
 
     def close(self):
+        # os._exit skips atexit handlers intentionally — webview.destroy() is unreliable
         os._exit(0)
 
     def save_setup(self, api_key: str, os_system: str) -> dict:
@@ -79,6 +82,7 @@ class JarvisWebUI:
         self._js_api = JsApi(self)
         self._js_lock = threading.Lock()
         self._js_queue: list[str] = []
+        self._mute_lock = threading.Lock()
         self._face_path = face_path
 
         if self._api_keys_exist():
@@ -101,11 +105,11 @@ class JarvisWebUI:
             colon = text.index(":")
             tag = "ai"
             body = text[colon + 1:].strip()
-        elif tl.startswith("err:") or "error" in tl or "failed" in tl:
-            tag = "err"
-            body = text
         else:
-            tag = "sys"
+            if tl.startswith("err:") or "error" in tl or "failed" in tl:
+                tag = "err"
+            else:
+                tag = "sys"
             body = text
 
         if tag == "ai":
@@ -117,7 +121,9 @@ class JarvisWebUI:
         self.set_state("SPEAKING")
 
     def stop_speaking(self):
-        if not self.muted:
+        with self._mute_lock:
+            muted = self.muted
+        if not muted:
             self.set_state("LISTENING")
 
     # ── Window lifecycle ──────────────────────────────────────────────────────
@@ -140,15 +146,24 @@ class JarvisWebUI:
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     def _on_loaded(self):
-        self._window_loaded.set()
         face_b64 = self._load_face_b64()
-        if face_b64:
-            self._window.evaluate_js(f"setFaceImage({json.dumps(face_b64)})")
-        if not self._api_keys_exist():
-            self._window.evaluate_js("showSetup()")
-        else:
-            self._window.evaluate_js("hideSetup()")
         with self._js_lock:
+            self._window_loaded.set()
+            if face_b64:
+                try:
+                    self._window.evaluate_js(f"setFaceImage({json.dumps(face_b64)})")
+                except Exception:
+                    pass
+            if not self._api_keys_exist():
+                try:
+                    self._window.evaluate_js("showSetup()")
+                except Exception:
+                    pass
+            else:
+                try:
+                    self._window.evaluate_js("hideSetup()")
+                except Exception:
+                    pass
             for js in self._js_queue:
                 try:
                     self._window.evaluate_js(js)
@@ -157,13 +172,13 @@ class JarvisWebUI:
             self._js_queue.clear()
 
     def _evaluate_js(self, js: str):
-        if self._window and self._window_loaded.is_set():
-            try:
-                self._window.evaluate_js(js)
-            except Exception:
-                pass
-        else:
-            with self._js_lock:
+        with self._js_lock:
+            if self._window and self._window_loaded.is_set():
+                try:
+                    self._window.evaluate_js(js)
+                except Exception:
+                    pass
+            else:
                 self._js_queue.append(js)
 
     def _api_keys_exist(self) -> bool:
